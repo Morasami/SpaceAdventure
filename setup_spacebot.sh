@@ -18,10 +18,27 @@ log_fatal() { echo "[🔥] $1"; exit 1; }
 
 
 log_info "Welcome to the SpaceBot Automated Setup!"
-log_info "Requesting Storage Permission (Grant if prompted)..."
 
-termux-setup-storage
-sleep 3 
+log_info "Checking Termux storage setup..."
+
+if [ -L "$HOME/storage/shared" ] || [ -d "$HOME/storage/shared" ]; then
+    log_info "Storage appears to be already set up."
+else
+    log_warning "Storage not detected or link missing."
+    log_info "Requesting Storage Permission (Grant if prompted)..."
+
+    termux-setup-storage || log_warning "termux-setup-storage command finished (may have aborted if already configured, this is usually OK)."
+    sleep 3 
+
+    if [ ! -L "$HOME/storage/shared" ] && [ ! -d "$HOME/storage/shared" ]; then
+         log_error "Storage setup failed or permission was denied. File operations may fail."
+
+
+    else
+         log_success "Storage setup confirmed/requested."
+    fi
+fi
+
 
 log_info "Updating Termux and installing base dependencies..."
 
