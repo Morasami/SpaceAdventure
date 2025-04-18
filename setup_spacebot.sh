@@ -1,30 +1,30 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Exit immediately if a command exits with a non-zero status.
+
 set -e
 
-# --- Configuration ---
-SCRIPT_FILE="SpaceAdventure_obf.py" # Or SpaceAdventure.py if you rename it back
+
+SCRIPT_FILE="SpaceAdventure_obf.py" 
 DATA_FILE="data.txt"
 PYTHON_VENV_DIR="spacebotenv"
-UBUNTU_DISTRO_NAME="ubuntu" # Or e.g., ubuntu-22.04 if you specifically need an older one
+UBUNTU_DISTRO_NAME="ubuntu" 
 
-# --- Helper Function for Logging ---
+
 log_info() { echo "[*] $1"; }
 log_success() { echo "[✓] $1"; }
 log_warning() { echo "[!] $1"; }
 log_error() { echo "[✗] $1"; }
 log_fatal() { echo "[🔥] $1"; exit 1; }
 
-# --- Main Setup Logic ---
+
 log_info "Welcome to the SpaceBot Automated Setup!"
 log_info "Requesting Storage Permission (Grant if prompted)..."
-# Attempt to grant storage permission - user must confirm Android popup
+
 termux-setup-storage
-sleep 3 # Give time for the popup
+sleep 3 
 
 log_info "Updating Termux and installing base dependencies..."
-# Force non-interactive and keep existing config files on conflict
+
 export DEBIAN_FRONTEND=noninteractive
 pkg update -y -o Dpkg::Options::="--force-confold" || log_warning "pkg update failed, continuing..."
 pkg upgrade -y -o Dpkg::Options::="--force-confold" || log_warning "pkg upgrade failed, continuing..."
@@ -41,8 +41,8 @@ else
 fi
 
 log_info "Setting up Python environment inside Ubuntu..."
-# Execute the setup commands within the Ubuntu container
-# Use --user root and --shared-tmp for potentially better compatibility
+
+
 proot-distro login "$UBUNTU_DISTRO_NAME" --user root --shared-tmp -- bash -c '
 # Exit on error inside the container too
 set -e
@@ -69,7 +69,7 @@ apt-get install -y --no-install-recommends python3 python3-venv python3-pip \
     software-properties-common || log_fatal_ubuntu "Failed to install Python or system dependencies via apt."
 log_success_ubuntu "System dependencies installed."
 
-VENV_PATH=~/'"$PYTHON_VENV_DIR"' # Pass variable from outer script
+VENV_PATH=~/'"$PYTHON_VENV_DIR"' # Get venv path relative to user home inside container
 
 if [ -d "$VENV_PATH" ]; then
     log_info_ubuntu "Virtual environment '$PYTHON_VENV_DIR' already exists."
@@ -97,9 +97,9 @@ log_success_ubuntu "Playwright browsers installed."
 
 log_success_ubuntu "Ubuntu environment setup complete."
 exit 0
-' || log_fatal "Ubuntu setup script block failed!" # Check if the proot-distro command block succeeded
+' || log_fatal "Ubuntu setup script block failed!" 
 
-# --- Back in Termux ---
+
 UBUNTU_ROOT_DIR="$PREFIX/var/lib/proot-distro/installed-rootfs/$UBUNTU_DISTRO_NAME/root"
 DOWNLOADS_DIR="/storage/emulated/0/Download"
 
@@ -128,42 +128,37 @@ else
   log_warning "$DATA_FILE not found in $DOWNLOADS_DIR! The bot might need this file."
 fi
 
-# --- MODIFIED ALIAS BLOCK ---
+
 log_info "Creating 'spacebot' launcher alias in ~/.bashrc..."
 BASHRC_FILE="$HOME/.bashrc"
 ALIAS_NAME="spacebot"
-# Use single quotes for the alias value to prevent premature expansion
-# Escape inner single quotes needed for the bash -c command
-# Added --user root and --shared-tmp to proot-distro command for robustness
-ALIAS_CMD="proot-distro login '$UBUNTU_DISTRO_NAME' --user root --shared-tmp -- bash -c 'cd ~ && source \"$PYTHON_VENV_DIR/bin/activate\" && python \"$SCRIPT_FILE\"'"
-ALIAS_ENTRY="alias $ALIAS_NAME='$ALIAS_CMD'"
 
-# Ensure .bashrc file exists
+
+ALIAS_ENTRY="alias $ALIAS_NAME='proot-distro login $UBUNTU_DISTRO_NAME --user root --shared-tmp -- bash -c \"cd \\\$HOME && source $PYTHON_VENV_DIR/bin/activate && python $SCRIPT_FILE\"'"
+
+
 touch "$BASHRC_FILE" || log_warning "Could not create $BASHRC_FILE"
 
-# Check if alias already exists and add it if not
-if grep -Fq "alias ${ALIAS_NAME}=" "$BASHRC_FILE"; then
-    log_info "Alias '$ALIAS_NAME' already exists in $BASHRC_FILE."
-    # Optional: Uncomment below to update the alias if it exists
-    # log_info "Updating existing alias '$ALIAS_NAME'..."
-    # # Use sed to replace the line containing the old alias with the new one
-    # # Need to escape characters special to sed in ALIAS_ENTRY
-    # sed -i "/alias ${ALIAS_NAME}=/c\\${ALIAS_ENTRY}" "$BASHRC_FILE" || log_error "Failed to update alias in $BASHRC_FILE!"
-    # log_success "Alias '$ALIAS_NAME' updated."
+
+if grep -Fq "alias ${ALIAS_NAME}='proot-distro login" "$BASHRC_FILE"; then
+    log_info "Alias '$ALIAS_NAME' seems to already exist in $BASHRC_FILE."
+
+
 else
     log_info "Adding alias '$ALIAS_NAME' to $BASHRC_FILE..."
+
     echo "$ALIAS_ENTRY" >> "$BASHRC_FILE" || log_error "Failed to add alias to $BASHRC_FILE!"
     log_success "Alias '$ALIAS_NAME' added."
 fi
 log_info "You MUST restart Termux or run 'source $BASHRC_FILE' for the alias to work."
-# --- END MODIFIED ALIAS BLOCK ---
 
 
-echo # Add a blank line for separation
+
+echo
 log_success "----------------------------------------------"
 log_success "✅ All done! Setup script finished."
 log_success "   To run the bot:"
-log_success "   1. Ensure '$SCRIPT_FILE' and '$DATA_FILE' are in the Ubuntu home directory (~)."
+log_success "   1. Ensure '$SCRIPT_FILE' and '$DATA_FILE' are in the Ubuntu home directory (~/)."
 log_success "   2. Close and reopen Termux (or run 'source ~/.bashrc')."
 log_success "   3. Type the command: spacebot"
 log_success "----------------------------------------------"
