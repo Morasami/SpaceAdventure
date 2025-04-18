@@ -22,22 +22,40 @@ source ~/spacebotenv/bin/activate
 echo "[*] Installing pip and required Python packages..."
 curl -sS https://bootstrap.pypa.io/get-pip.py | python
 pip install playwright requests pyfiglet aiohttp colorama rich
-
-echo "[*] Installing Playwright browser binaries..."
 playwright install
 
-echo "[✅] Setup complete!"
-echo ""
-echo "🚨 FINAL STEP: In Termux (not Ubuntu), run these commands:"
-echo "cp /storage/emulated/0/Download/SpaceAdventure.py ~/../usr/var/lib/proot-distro/installed-rootfs/ubuntu/root/"
-echo "cp /storage/emulated/0/Download/data.txt ~/../usr/var/lib/proot-distro/installed-rootfs/ubuntu/root/"
-echo ""
-echo "📦 Then to run the script daily:"
-echo "--------------------------------------"
-echo "proot-distro login ubuntu"
-echo "cd ~"
-echo "source spacebotenv/bin/activate"
-echo "python SpaceAdventure.py"
-echo "--------------------------------------"
+echo "[✅] Ubuntu + Python + Playwright setup complete."
 exit
 EOS
+
+echo "[*] Checking for SpaceAdventure_obf.py and data.txt in Downloads..."
+if [[ -f /storage/emulated/0/Download/SpaceAdventure_obf.py ]]; then
+  cp /storage/emulated/0/Download/SpaceAdventure_obf.py ~/../usr/var/lib/proot-distro/installed-rootfs/ubuntu/root/
+  echo "[✓] Moved SpaceAdventure_obf.py"
+else
+  echo "[!] SpaceAdventure_obf.py not found in Downloads!"
+fi
+
+if [[ -f /storage/emulated/0/Download/data.txt ]]; then
+  cp /storage/emulated/0/Download/data.txt ~/../usr/var/lib/proot-distro/installed-rootfs/ubuntu/root/
+  echo "[✓] Moved data.txt"
+else
+  echo "[!] data.txt not found in Downloads!"
+fi
+
+echo "[*] Creating spacebot launcher alias in ~/.bashrc"
+if ! grep -q 'alias spacebot=' ~/.bashrc; then
+  echo "alias spacebot='proot-distro login ubuntu -- bash -c \"cd ~ && source spacebotenv/bin/activate && python SpaceAdventure_obf.py\"'" >> ~/.bashrc
+  echo "[✓] Alias added. You can now run: spacebot"
+else
+  echo "[i] Alias already exists."
+fi
+
+source ~/.bashrc
+
+echo
+echo "✅ All done! To run the bot anytime, just type:"
+echo "----------------------------------------------"
+echo "spacebot"
+echo "----------------------------------------------"
+echo "🎉 Script, environment, and launcher are ready!"
