@@ -3,115 +3,145 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# Attempt to force non-interactive mode for package manager
-export DEBIAN_FRONTEND=noninteractive
+# --- Configuration ---
+SCRIPT_FILE="SpaceAdventure_obf.py" # Or SpaceAdventure.py if you rename it back
+DATA_FILE="data.txt"
+PYTHON_VENV_DIR="spacebotenv"
+UBUNTU_DISTRO_NAME="ubuntu" # Or e.g., ubuntu-22.04 if you specifically need an older one
 
-echo "[*] Welcome to the SpaceBot Setup!"
-echo "[*] This script will install Ubuntu, Python, Playwright, and required files."
-echo "[!] IMPORTANT: Termux may ask for Storage Permission. Please GRANT it."
-sleep 3
+# --- Helper Function for Logging ---
+log_info() { echo "[*] $1"; }
+log_success() { echo "[✓] $1"; }
+log_warning() { echo "[!] $1"; }
+log_error() { echo "[✗] $1"; }
+log_fatal() { echo "[🔥] $1"; exit 1; }
 
-# Request storage permission if not already granted (best effort)
+# --- Main Setup Logic ---
+log_info "Welcome to the SpaceBot Automated Setup!"
+log_info "Requesting Storage Permission (Grant if prompted)..."
 termux-setup-storage
-echo "[*] Continuing setup... (If you weren't asked for permission, it might already be granted)"
-sleep 2
+sleep 3 # Give time for the popup
 
-echo "[*] Updating Termux and installing base dependencies (forcing config overwrite)..."
-# Add Dpkg options to automatically handle config file conflicts
-# --force-confnew: Install the new version of the config file
-# --force-confdef: If there's a default action defined, use it. Otherwise, ask. (Less aggressive)
-# Let's use --force-confnew for maximum automation
-PKG_OPTIONS="-o Dpkg::Options::=--force-confnew"
-pkg update -y ${PKG_OPTIONS} && pkg upgrade -y ${PKG_OPTIONS}
-pkg install proot-distro wget curl nano -y ${PKG_OPTIONS}
+log_info "Updating Termux and installing base dependencies..."
+# Force non-interactive and keep existing config files on conflict
+export DEBIAN_FRONTEND=noninteractive
+pkg update -y -o Dpkg::Options::="--force-confold" || log_warning "pkg update failed, continuing..."
+pkg upgrade -y -o Dpkg::Options::="--force-confold" || log_warning "pkg upgrade failed, continuing..."
+pkg install proot-distro wget curl nano -y -o Dpkg::Options::="--force-confold" || log_fatal "Failed to install base Termux packages."
+log_success "Termux dependencies installed."
 
-echo "[*] Installing Ubuntu container (using default version, likely 24.04 - this might take a while)..."
-proot-distro install ubuntu
+log_info "Checking if Ubuntu ($UBUNTU_DISTRO_NAME) container exists..."
+if ! proot-distro list | grep -q "$UBUNTU_DISTRO_NAME"; then
+    log_info "Installing Ubuntu ($UBUNTU_DISTRO_NAME) container (this might take a while)..."
+    proot-distro install "$UBUNTU_DISTRO_NAME" || log_fatal "Failed to install Ubuntu container."
+    log_success "Ubuntu container installed."
+else
+    log_info "Ubuntu ($UBUNTU_DISTRO_NAME) container already installed."
+fi
 
-echo "[*] Logging into Ubuntu to install Python, dependencies, and Playwright..."
-# Use DEBIAN_FRONTEND=noninteractive inside container as well (already exported, but good practice)
-proot-distro login ubuntu -- bash -c '
-set -e # Also exit on error inside the container shell
+log_info "Setting up Python environment inside Ubuntu..."
+# Execute the setup commands within the Ubuntu container
+proot-distro login "$UBUNTU_DISTRO_NAME" -- bash -c '
+# Exit on error inside the container too
+set -e
 export DEBIAN_FRONTEND=noninteractive
 
-echo "[Ubuntu] Updating package lists..."
-apt update
+log_info_ubuntu() { echo "[Ubuntu] [*] $1"; }
+log_success_ubuntu() { echo "[Ubuntu] [✓] $1"; }
+log_warning_ubuntu() { echo "[Ubuntu] [!] $1"; }
+log_error_ubuntu() { echo "[Ubuntu] [✗] $1"; }
+log_fatal_ubuntu() { echo "[Ubuntu] [🔥] $1"; exit 1; }
 
-echo "[Ubuntu] Installing default Python 3 (likely 3.12) and system dependencies..."
-# Use python3, python3-venv, python3-pip for default Python in Ubuntu 24.04+
-apt install -y python3 python3-venv python3-pip \
-build-essential curl wget nano libnss3 libnspr4 libatk1.0-0t64 libatspi2.0-0t64 \
-libxcomposite1 libxdamage1 libxext6 libxfixes3 libxrandr2 libgbm1 libxkbcommon0 \
-libasound2t64 software-properties-common || { echo "[!!!] Failed to install system dependencies via apt"; exit 1; }
+log_info_ubuntu "Updating package lists..."
+apt-get update -y || log_warning_ubuntu "apt-get update failed, continuing..."
 
-echo "[Ubuntu] Creating Python virtual environment..."
-python3 -m venv ~/spacebotenv || { echo "[!] Failed to create Python venv"; exit 1; }
+log_info_ubuntu "Installing Python 3, venv, pip, build tools, and Playwright system dependencies..."
+# Use default python3 packages for the installed Ubuntu version
+apt-get install -y python3 python3-venv python3-pip \
+    build-essential curl wget nano \
+    libnss3 libnspr4 libatk1.0-0t64 libatspi2.0-0t64 \
+    libxcomposite1 libxdamage1 libxext6 libxfixes3 libxrandr2 libgbm1 \
+    libxkbcommon0 libasound2t64 \
+    software-properties-common || log_fatal_ubuntu "Failed to install Python or system dependencies via apt."
+log_success_ubuntu "System dependencies installed."
 
-echo "[Ubuntu] Activating virtual environment..."
-source ~/spacebotenv/bin/activate
+VENV_PATH=~/'"$PYTHON_VENV_DIR"' # Pass variable from outer script
 
-echo "[Ubuntu] Upgrading pip..."
-pip install --upgrade pip || { echo "[!] Failed to upgrade pip"; exit 1; }
+if [ -d "$VENV_PATH" ]; then
+    log_info_ubuntu "Virtual environment '$PYTHON_VENV_DIR' already exists."
+else
+    log_info_ubuntu "Creating Python virtual environment '$PYTHON_VENV_DIR'..."
+    python3 -m venv "$VENV_PATH" || log_fatal_ubuntu "Failed to create Python virtual environment."
+    log_success_ubuntu "Virtual environment created."
+fi
 
-echo "[Ubuntu] Installing Python packages (Playwright, Requests, etc.)..."
-pip install playwright requests pyfiglet aiohttp colorama rich || { echo "[!] Failed to install Python packages"; exit 1; }
+log_info_ubuntu "Activating virtual environment and upgrading pip..."
+source "$VENV_PATH/bin/activate"
+python -m pip install --upgrade pip || log_warning_ubuntu "Failed to upgrade pip."
+log_success_ubuntu "Pip ready."
 
-echo "[Ubuntu] Installing Playwright browsers (THIS CAN TAKE A LONG TIME depending on network speed)..."
-playwright install || { echo "[!] Failed to install Playwright browsers"; exit 1; }
+log_info_ubuntu "Installing Python packages (Playwright, requests, etc.)..."
+pip install --no-cache-dir playwright requests pyfiglet aiohttp colorama rich || log_fatal_ubuntu "Failed to install Python packages via pip."
+log_success_ubuntu "Python packages installed."
 
-echo "[✅] Ubuntu + Python + Playwright setup complete inside the container."
+log_info_ubuntu "Installing Playwright browser binaries (this can take a long time)..."
+playwright install --with-deps || log_fatal_ubuntu "Failed to install Playwright browsers. Check network and storage."
+log_success_ubuntu "Playwright browsers installed."
+
+log_success_ubuntu "Ubuntu environment setup complete."
 exit 0
-' || { echo "[!!!] Ubuntu setup script failed!"; exit 1; } # Check if the proot-distro command block failed
-
+' || log_fatal "Ubuntu setup script block failed!" # Check if the proot-distro command block succeeded
 
 # --- Back in Termux ---
-echo "[*] Checking for required files in Downloads..."
-UBUNTU_ROOTFS_PATH="$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu/root"
-DOWNLOADS_PATH="/storage/emulated/0/Download"
-SCRIPT_FILE="SpaceAdventure_obf.py" # Define script filename
-DATA_FILE="data.txt"              # Define data filename
+UBUNTU_ROOT_DIR="$PREFIX/var/lib/proot-distro/installed-rootfs/$UBUNTU_DISTRO_NAME/root"
+DOWNLOADS_DIR="/storage/emulated/0/Download"
 
-if [[ -f "$DOWNLOADS_PATH/$SCRIPT_FILE" ]]; then
-  if cp "$DOWNLOADS_PATH/$SCRIPT_FILE" "$UBUNTU_ROOTFS_PATH/"; then
-    echo "[✓] Copied $SCRIPT_FILE to Ubuntu container."
+log_info "Checking for script file '$SCRIPT_FILE' in Downloads..."
+if [[ -f "$DOWNLOADS_DIR/$SCRIPT_FILE" ]]; then
+  if cp "$DOWNLOADS_DIR/$SCRIPT_FILE" "$UBUNTU_ROOT_DIR/"; then
+    log_success "Copied $SCRIPT_FILE to Ubuntu container."
   else
-    echo "[!] Failed to copy $SCRIPT_FILE! Check Termux storage permissions and if the file exists."
-    exit 1
+    log_error "Failed to copy $SCRIPT_FILE! Check Termux storage permissions."
+    # Decide if this is fatal or just a warning
+    log_warning "Script may not run correctly without $SCRIPT_FILE."
   fi
 else
-  echo "[!] $SCRIPT_FILE not found in $DOWNLOADS_PATH! Please download it first."
-  exit 1
+  log_warning "$SCRIPT_FILE not found in $DOWNLOADS_DIR! Please download it first."
+  log_warning "Script will likely fail without $SCRIPT_FILE."
 fi
 
-if [[ -f "$DOWNLOADS_PATH/$DATA_FILE" ]]; then
-  if cp "$DOWNLOADS_PATH/$DATA_FILE" "$UBUNTU_ROOTFS_PATH/"; then
-    echo "[✓] Copied $DATA_FILE to Ubuntu container."
+log_info "Checking for data file '$DATA_FILE' in Downloads..."
+if [[ -f "$DOWNLOADS_DIR/$DATA_FILE" ]]; then
+  if cp "$DOWNLOADS_DIR/$DATA_FILE" "$UBUNTU_ROOT_DIR/"; then
+    log_success "Copied $DATA_FILE to Ubuntu container."
   else
-    echo "[!] Failed to copy $DATA_FILE! Check Termux storage permissions and if the file exists."
-    # Decide if this warrants exiting: exit 1
+    log_error "Failed to copy $DATA_FILE! Check Termux storage permissions."
+    log_warning "Script may not run correctly without $DATA_FILE."
   fi
 else
-  echo "[!] $DATA_FILE not found in $DOWNLOADS_PATH! The bot might need this file to run correctly."
-  # Decide if this warrants exiting: exit 1
+  log_warning "$DATA_FILE not found in $DOWNLOADS_DIR! The bot might need this file."
 fi
 
-echo "[*] Creating 'spacebot' launcher alias in ~/.bashrc..."
-BASHRC_ALIAS='alias spacebot='\''proot-distro login ubuntu -- bash -c "cd ~ && source spacebotenv/bin/activate && python '$SCRIPT_FILE'"'\'''
-if ! grep -q 'alias spacebot=' ~/.bashrc; then
-  echo "$BASHRC_ALIAS" >> ~/.bashrc
-  echo "[✓] Alias added. Restart Termux or run 'source ~/.bashrc', then run: spacebot"
-else
-  echo "[i] Alias 'spacebot' already exists."
-fi
+log_info "Creating 'spacebot' launcher alias in ~/.bashrc..."
+# Use single quotes for the alias value to prevent premature expansion
+# Escape inner single quotes needed for the bash -c command
+ALIAS_CMD="proot-distro login '$UBUNTU_DISTRO_NAME' --user root --shared-tmp -- bash -c 'cd ~ && source \"$PYTHON_VENV_DIR/bin/activate\" && python \"$SCRIPT_FILE\"'"
+ALIAS_ENTRY="alias spacebot='$ALIAS_CMD'"
+
+# Remove old alias if exists, then add new one
+sed -i '/alias spacebot=/d' ~/.bashrc
+echo "$ALIAS_ENTRY" >> ~/.bashrc
+log_success "Alias 'spacebot' added/updated in ~/.bashrc."
+log_info "You MUST restart Termux or run 'source ~/.bashrc' for the alias to work."
 
 echo
-echo "----------------------------------------------"
-echo "✅ All done! Setup script finished."
-echo "   To run the bot:"
-echo "   1. Close and reopen Termux (or run 'source ~/.bashrc')."
-echo "   2. Type the command: spacebot"
-echo "----------------------------------------------"
-echo "🎉 Script, environment, and launcher should be ready!"
-echo "(If you encounter issues, copy the error message and seek help)"
+log_success "----------------------------------------------"
+log_success "✅ All done! Setup script finished."
+log_success "   To run the bot:"
+log_success "   1. Ensure '$SCRIPT_FILE' and '$DATA_FILE' are in '$UBUNTU_ROOT_DIR'."
+log_success "   2. Close and reopen Termux (or run 'source ~/.bashrc')."
+log_success "   3. Type the command: spacebot"
+log_success "----------------------------------------------"
+log_info "(If setup failed, scroll up to see [✗] or [🔥] errors)"
 
 exit 0
